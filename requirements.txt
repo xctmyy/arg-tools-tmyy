@@ -1,0 +1,11 @@
+# arg.xc 运行依赖
+# UI 框架：CustomTkinter（tkinter 的现代化外观封装，纯 Python）
+# 注意：底层依赖标准库 tkinter，需使用自带 tkinter 的 Python 发行版
+#      （官方 Windows/macOS 安装包默认包含；精简版/嵌入式版通常不含）
+customtkinter>=5.2.2
+
+# --- 以下为后续功能模块按需引入，当前骨架阶段尚未使用 ---
+# pillow>=10.0.0        # 图像处理 / LSB 隐写 / EXIF
+# numpy>=1.26.0         # 频谱图计算
+# scipy>=1.11.0         # 音频信号处理
+# matplotlib>=3.8.0     # 频谱可视化
