@@ -28,7 +28,7 @@
 | 编号 | 功能 | 说明 | 优先级 |
 | --- | --- | --- | --- |
 | F1 | 工程与线索管理 | 新建 / 打开 / 保存 ARG 工程，线索库增删改查 | P0 |
-| F2 | 密码与编码 | 替换密码、Base / 摩斯 / 二进制、哈希、自动识别 | P0 |
+| F2 | 密码与编码 | 经典密码、Base / 摩斯 / 二进制、哈希、AES / ChaCha20 / RSA / ECC、自动识别 | P0 |
 | F3 | 隐写 | 图像 LSB、通道分离、EXIF、音频频谱、零宽字符 | P0 |
 | F4 | 多媒体 | 音视频转码、抽帧、二维码生成与识别 | P1 |
 | F5 | 文件与网络分析 | 十六进制、类型嗅探、数据提取、WHOIS / 网页快照 | P1 |
@@ -81,22 +81,46 @@ M4 / M5 按用户要求**排在核心功能之后**，先保证 F1-F7 可用。
 - [x] 最近打开记录（`AppSettings.recent_projects`，最多 8 条）
 - [x] 设置持久化 `data/settings.json`（`load_settings` / `save_settings`）
 
-**F2 密码与编码（`core/crypto.py` + `crypto` 页）**
-- [x] 替换密码：凯撒、ROT13、Atbash、A1Z26
-- [x] 需密钥：维吉尼亚、栅栏、Playfair、Nihilist、书本密码
-- [x] 编码：Base16/32/64、摩斯、二进制、十六进制、URL、HTML 实体、Brainfuck/Ook
+**F2 密码与编码（`core/crypto.py` + `core/crypto_modern.py` + `crypto` 页）**
+
+经典算法（`crypto.py`，注册表与数据结构在 `crypto_types.py`）
+- [x] 替换密码：凯撒、ROT13、ROT47、Atbash、A1Z26、培根密码
+- [x] 需密钥：维吉尼亚、栅栏、Playfair、Nihilist、书本密码、仿射、列置换、异或
+- [x] 编码：Base16/32/64、Base85、摩斯、二进制、十六进制、URL、HTML 实体、
+      Quoted-Printable、Brainfuck/Ook
 - [x] 哈希：MD5、SHA-1、SHA-256、SHA-512、CRC32（单向，解码时报错）
+- [x] **摩斯电码中文支持**：新增「字符集」参数
+      - 标准模式：仅 ASCII，遇到中文给出可读提示并指明切模式
+      - Unicode 模式：按字符码点的十六进制逐位转摩斯，**完全可逆**，中文与空格都不丢
 - [x] `detect()`：启发式识别输入可能的编码类型
-- [x] 暴力枚举：凯撒全 26 位移、栅栏全栏数
+- [x] 暴力枚举：凯撒全位移、栅栏全栏数、培根两种符号集、仿射全 312 种 (a,b) 组合
+
+现代算法（`crypto_modern.py`，依赖 `cryptography`，**不手搓任何密码原语**）
+- [x] AES-256-GCM：口令经 PBKDF2 派生，密文头部自带迭代次数与盐，解密不必重填参数
+- [x] AES-CBC：原始 hex 密钥 + IV，PKCS7 填充
+- [x] AES-ECB：原始 hex 密钥（仅供复现谜题，注释里点明其弱点）
+- [x] ChaCha20：原始 hex 密钥 + 16 字节 nonce
+- [x] ChaCha20-Poly1305：RFC 8439，12 字节 nonce，认证加密
+- [x] RSA：PEM 公钥加密 / 私钥解密，OAEP-SHA256 与 PKCS1v15 两种填充；
+      明文超长时提示改用混合加密；私钥文件误填进公钥栏会自动取公钥部分
+- [x] ECC / ECIES：临时密钥 ECDH + HKDF + AES-GCM，P-256/384/521 可选
+- [x] 动作机制：算法可挂「生成密钥对」这类非编解码操作，UI 自动渲染参数与按钮
+- [x] 依赖缺失时不崩：算法照常列出，调用时提示 `pip install cryptography`
+
+界面与线程
 - [x] 页面 UI：算法下拉（分组）+ 参数表单自动生成 + 输入/输出双栏 +
       编码/解码/交换/复制/清空/识别/枚举
+- [x] 参数控件按类型渲染：text / int / password（掩码）/ keyfile / dir（带浏览）/ choice
 - [x] 算法注册表 `REGISTRY` 驱动 UI：新增算法只需改 core 层
-- [x] **后台线程执行**：编码 / 解码 / 暴力枚举走 `src/ui/async_task.py` 的
-      `TaskRunner`，大输入或 Brainfuck 解释不再冻住界面；忙碌期间禁用交互并
-      拒绝重复提交
+- [x] **后台线程执行**：编码 / 解码 / 暴力枚举 / 工具动作走 `src/ui/async_task.py` 的
+      `TaskRunner`，大输入、RSA 密钥生成、Brainfuck 解释不再冻住界面；
+      忙碌期间禁用交互并拒绝重复提交
 
 **测试**
-- [x] `tests/test_crypto.py`：覆盖已知向量、往返一致性、错误分支、detect、暴力枚举
+- [x] `tests/test_crypto.py`：覆盖已知向量、往返一致性、错误分支、detect、
+      暴力枚举、摩斯中文模式
+- [x] `tests/test_crypto_modern.py`：AES/ChaCha20/RSA/ECIES 往返、随机性、
+      篡改检测、密钥长度与类型错误；未装 cryptography 时整组跳过
 - [x] `tests/test_store.py`：工程生命周期、线索 CRUD、搜索、落盘往返
 - [x] `tests/test_async_task.py`：后台任务的成功/失败/忙碌拒绝/线程归属
 
@@ -246,3 +270,4 @@ main.py
 | 2026-10-08 | M0 完成。搭建目录分层、UI 外壳、页面注册机制、core 接口占位；完成 ARG 工具链调研并写入 doc/；冒烟测试通过。新增 F8（AI Agent）与 F9（MCP）两项规划，排入 M4 / M5。 |
 | 2026-10-08 | **M1 完成**。`core/crypto.py` 实现 23 个算法（替换密码 4 + 需密钥 5 + 编码 10 + 哈希 5，含 SHA-512），带注册表驱动 UI；`core/store.py` 实现工程持久化与线索 CRUD；`crypto` 页与 `project` 页落地；设置持久化与最近工程记录提前完成；新增 `tests/` 共 40 项单元测试全部通过。 |
 | 2026-10-08 | **编码/解码改为后台线程执行**。新增 `src/ui/async_task.py`（`TaskRunner`）：工作线程只算、主线程用 `after()` 轮询取结果，避免跨线程碰控件。`crypto` 页的编码/解码/暴力枚举接入，忙碌期间禁用按钮并拒绝重复提交。顺带修掉一个真 bug：`base64/base32/base16` 解码遇非 ASCII 输入时，标准库抛的普通 `ValueError` 绕过了只捕获 `binascii.Error` 的 except，导致英文报错直透界面；已改为先校验字符集再解码。测试增至 52 项。 |
+| 2026-10-08 | **新增现代密码算法与摩斯中文支持**。算法数由 23 增至 38。拆分出 `crypto_types.py`（数据结构与注册表，供经典/现代两层共用，避免循环依赖）与 `crypto_modern.py`（AES-GCM/CBC/ECB、ChaCha20、ChaCha20-Poly1305、RSA、ECC/ECIES，全部基于 `cryptography` 库，**不手搓任何密码原语**）。引入「动作」机制支持生成密钥对。摩斯新增「字符集」参数：标准模式仅 ASCII 并给出切模式提示，Unicode 模式按码点十六进制编码，中文完全可逆。UI 参数控件扩展为 text/int/password/keyfile/dir/choice 六种。新增依赖 `cryptography>=42`。测试增至 100 项。 |

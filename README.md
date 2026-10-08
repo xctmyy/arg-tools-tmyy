@@ -21,9 +21,15 @@ python main.py
 启动后会看到一个带左侧导航的窗口。目前可用：
 
 - **项目** —— 新建 / 打开工程，线索库增删改查与搜索，最近工程记录
-- **密码 / 编码** —— 23 种算法，含凯撒、维吉尼亚、Playfair、书本密码、
-  Base16/32/64、摩斯、Brainfuck、MD5/SHA/CRC；支持编码类型自动识别与暴力枚举。
-  运算在后台线程执行，大输入不会冻住界面
+- **密码 / 编码** —— 38 种算法
+  - 经典：凯撒、ROT13/47、Atbash、A1Z26、培根、维吉尼亚、栅栏、Playfair、
+    Nihilist、书本密码、仿射、列置换、异或
+  - 编码：Base16/32/64/85、摩斯、二进制、十六进制、URL、HTML 实体、
+    Quoted-Printable、Brainfuck、Ook
+  - 哈希：MD5、SHA-1/256/512、CRC32
+  - 现代：AES-GCM/CBC/ECB、ChaCha20、ChaCha20-Poly1305、RSA、ECC/ECIES
+  - 摩斯支持中文（Unicode 模式，完全可逆）；支持编码类型自动识别与暴力枚举；
+    运算在后台线程执行，大输入不会冻住界面
 
 其余页面（隐写 / 多媒体 / 文件网络 / 谜题链）仍为占位。
 
@@ -33,8 +39,11 @@ python main.py
 python -m unittest discover -s tests -t .
 ```
 
-52 项单元测试，覆盖算法的已知向量与往返一致性、工程持久化、线索 CRUD、
-后台任务调度。
+100 项单元测试，覆盖算法的已知向量与往返一致性、现代密码的随机性与篡改检测、
+工程持久化、线索 CRUD、后台任务调度。
+
+> 现代密码算法依赖 `cryptography`。没装也能启动，只是「现代密码」分组的算法
+> 会提示缺少依赖；相关测试会自动跳过。
 
 > **环境要求**：Python 3.10+，且解释器需自带 `tkinter`（CustomTkinter 的底层依赖）。
 > Windows / macOS 官网安装包默认包含；若报 `No module named 'tkinter'`，
@@ -58,7 +67,9 @@ arg-tools-tmyy/
     ├── app.py              应用装配层
     ├── config/             配置：常量、路径、用户设置
     ├── core/               核心逻辑（纯 Python，不依赖 UI）
-    │   ├── crypto.py       密码 / 编码
+    │   ├── crypto_types.py 密码模块的数据结构与注册表
+    │   ├── crypto.py       经典密码 / 编码 / 哈希
+    │   ├── crypto_modern.py AES / ChaCha20 / RSA / ECC（依赖 cryptography）
     │   ├── stego.py        隐写
     │   ├── media.py        音视频 / 图像 / 二维码
     │   ├── analysis.py     文件 / 网络分析

@@ -28,9 +28,12 @@ class TestRoundTrip(unittest.TestCase):
     def test_substitution(self) -> None:
         self._check("caesar", "Hello, World!", shift="7")
         self._check("rot13", "Attack at dawn")
+        self._check("rot47", "Hello, World! 123 @#$")
         self._check("atbash", "Hello World")
         # A1Z26 只保留字母、统一大写，故用大写纯字母测往返
         self._check("a1z26", "HELLO", sep="-")
+        # 培根只处理字母且输出统一大写
+        self._check("bacon", "HELLO", alphabet="ab")
 
     def test_a1z26_is_lossy_by_design(self) -> None:
         """A1Z26 丢失大小写与空格——这是算法本身的性质，不是 bug。"""
@@ -45,11 +48,15 @@ class TestRoundTrip(unittest.TestCase):
         self._check("nihilist", "HELLO", key="ZEBRAS", numeric_key="KEY")
         book = "the quick brown fox jumps over the lazy dog"
         self._check("book_cipher", "hello", book=book, sep=" ")
+        self._check("affine", "Hello World", a="5", b="8")
+        self._check("columnar", "HELLOWORLD", key="KEY")
+        self._check("xor", "Hello 世界", key="secret")
 
     def test_encoding(self) -> None:
         for method in ("base64", "base32", "base16", "url", "html_entity",
-                       "brainfuck", "ook"):
+                       "brainfuck", "ook", "quoted_printable"):
             self._check(method, "Hello, 世界! 123")
+        self._check("base85", "Hello, 世界! 123")
         self._check("morse", "SOS HELP", word_sep="/")
         self._check("binary", "Hi 你好", sep=" ")
         self._check("hex", "Hi 你好", sep=" ")
@@ -103,6 +110,82 @@ class TestKnownVectors(unittest.TestCase):
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
         )
         self.assertEqual(crypto.encode("abc", "crc32"), "352441c2")
+
+    def test_rot47(self) -> None:
+        self.assertEqual(crypto.encode("abc", "rot47"), "234")
+
+    def test_bacon(self) -> None:
+        self.assertEqual(crypto.encode("AB", "bacon"), "aaaaaaaaab")
+        self.assertEqual(crypto.encode("AB", "bacon", alphabet="AB"), "AAAAAAAAAB")
+
+    def test_affine(self) -> None:
+        # a=5 b=8 时 A(0) -> (5*0+8) % 26 = 8 -> 'I'
+        self.assertEqual(crypto.encode("A", "affine", a="5", b="8"), "I")
+
+    def test_xor_hex_output(self) -> None:
+        # 'A'(0x41) ^ 'a'(0x61) = 0x20
+        self.assertEqual(crypto.encode("A", "xor", key="a", out_encoding="hex"), "20")
+
+    def test_quoted_printable(self) -> None:
+        self.assertEqual(crypto.encode("=", "quoted_printable"), "=3D")
+
+    def test_columnar(self) -> None:
+        # 密钥 KEY 的字母序为 E(1) K(0) Y(2)，故按 1、0、2 列读出
+        self.assertEqual(crypto.encode("HEL", "columnar", key="KEY"), "EHL")
+
+
+class TestMorseChinese(unittest.TestCase):
+    """摩斯电码的中文支持。
+
+    标准摩斯没有中文，所以 Unicode 模式把每个字符的码点写成十六进制再转摩斯。
+    好处是完全可逆；代价是输出比标准摩斯长得多。
+    """
+
+    def test_ascii_mode_unchanged(self) -> None:
+        self.assertEqual(crypto.encode("SOS", "morse"), "... --- ...")
+        self.assertEqual(crypto.decode("... --- ...", "morse"), "SOS")
+
+    def test_ascii_mode_rejects_chinese_with_hint(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            crypto.encode("你好", "morse")
+        msg = str(ctx.exception)
+        self.assertIn("Unicode", msg)  # 告诉用户切模式
+        self.assertIn("你", msg)  # 指出是哪个字符
+
+    def test_unicode_mode_round_trip_chinese(self) -> None:
+        text = "你好，世界"
+        enc = crypto.encode(text, "morse", mode=crypto.MORSE_MODE_UNICODE)
+        self.assertEqual(
+            crypto.decode(enc, "morse", mode=crypto.MORSE_MODE_UNICODE), text
+        )
+
+    def test_unicode_mode_round_trip_mixed(self) -> None:
+        """中英数标点混排也要能原样还原。"""
+        text = "Hello 世界 123 !?"
+        enc = crypto.encode(text, "morse", mode=crypto.MORSE_MODE_UNICODE)
+        self.assertEqual(
+            crypto.decode(enc, "morse", mode=crypto.MORSE_MODE_UNICODE), text
+        )
+
+    def test_unicode_mode_encodes_codepoint_hex(self) -> None:
+        # 中 = U+4E2D，逐位转摩斯
+        enc = crypto.encode("中", "morse", mode=crypto.MORSE_MODE_UNICODE)
+        self.assertEqual(enc.split(), [crypto.MORSE[d] for d in "4E2D"])
+
+    def test_unicode_mode_preserves_spaces(self) -> None:
+        """空格也按码点编码，因此不会丢。"""
+        text = "a b"
+        enc = crypto.encode(text, "morse", mode=crypto.MORSE_MODE_UNICODE)
+        self.assertEqual(
+            crypto.decode(enc, "morse", mode=crypto.MORSE_MODE_UNICODE), text
+        )
+
+    def test_unicode_mode_rejects_non_hex_group(self) -> None:
+        """把标准摩斯误当 Unicode 模式解码时，要给出可读的报错。"""
+        with self.assertRaises(ValueError) as ctx:
+            crypto.decode(".... . .-.. .-.. ---", "morse",
+                          mode=crypto.MORSE_MODE_UNICODE)
+        self.assertIn("十六进制", str(ctx.exception))
 
 
 class TestBehavior(unittest.TestCase):
