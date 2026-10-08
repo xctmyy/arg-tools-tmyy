@@ -51,6 +51,8 @@ class AppSettings:
     theme: ColorTheme = ColorTheme.BLUE
     recent_projects: list[str] = field(default_factory=list)
     last_opened_project: str | None = None
+    #: 右侧 AI 助手面板是否展开
+    ai_panel_open: bool = True
 
     #: 最近工程最多记这么多条
     MAX_RECENT: ClassVar[int] = 8
@@ -61,6 +63,7 @@ class AppSettings:
             "theme": self.theme.value,
             "recent_projects": list(self.recent_projects),
             "last_opened_project": self.last_opened_project,
+            "ai_panel_open": self.ai_panel_open,
         }
 
     @classmethod
@@ -72,11 +75,14 @@ class AppSettings:
                 return fallback
 
         recent = data.get("recent_projects")
+        ai_open = data.get("ai_panel_open")
         return cls(
             appearance=pick(AppearanceMode, data.get("appearance"), AppearanceMode.DARK),
             theme=pick(ColorTheme, data.get("theme"), ColorTheme.BLUE),
             recent_projects=[str(p) for p in recent] if isinstance(recent, list) else [],
             last_opened_project=data.get("last_opened_project"),
+            # 键缺失或值为 None 都回落到默认，避免旧配置文件把面板关掉
+            ai_panel_open=True if ai_open is None else bool(ai_open),
         )
 
     def touch_recent(self, path: str | Path) -> None:

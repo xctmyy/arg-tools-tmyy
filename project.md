@@ -34,8 +34,9 @@ ARG 的特点是：谜题散布在真实世界的各种载体上——网页、�
 main.py            仅负责启动
   └── src/app.py          装配：配置 -> 主题 -> 主窗口
         ├── src/config/   常量与用户设置
-        ├── src/ui/       界面（主窗口 + 功能页）
-        │     └── pages/  一页一文件，自动注册
+        ├── src/ui/       界面（主窗口 + 功能页 + 右侧 AI 面板）
+        │     ├── pages/  一页一文件，自动注册
+        │     └── ai_panel.py  常驻右侧的 AI 助手（与页面切换无关）
         ├── src/core/     业务逻辑（不依赖 UI）
         ├── src/ai/       AI 层：LLM、工具注册表、Agent、提示词（规划）
         ├── src/mcp/      MCP 层：client / server（规划）
