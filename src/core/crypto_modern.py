@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 
@@ -277,32 +278,72 @@ def _rsa_capacity(key_size_bits: int, mode: str) -> int:
     return key_size_bits // 8 - 2 * 32 - 2  # OAEP-SHA256
 
 
+#: 混合加密密文的魔数：RSA 包住一把 AES 密钥，正文交给 AES
+_HYBRID_MAGIC = b"AXH1"
+
+RSA_LONG_ERROR = "超长时报错"
+RSA_LONG_HYBRID = "自动混合加密"
+RSA_LONG_MODES = (RSA_LONG_ERROR, RSA_LONG_HYBRID)
+
+
 def _rsa_encode(text: str, pubkey: str = "", padding_mode: str = "OAEP-SHA256",
-                out_encoding: str = "base64", **_: object) -> str:
+                out_encoding: str = "base64", long_text: str = RSA_LONG_ERROR,
+                **_: object) -> str:
+    """公钥加密。
+
+    明文超过密钥容量时，可选自动混合加密：随机生成一把 AES 密钥加密正文，
+    再用 RSA 加密这把密钥。这是 TLS / PGP 通行的做法。
+    """
     _ensure()
     key = _load_public_key(pubkey)
     if not isinstance(key, rsa.RSAPublicKey):
         raise ValueError("这个公钥不是 RSA 公钥")
+    pad = _rsa_padding(padding_mode)
     data = text.encode("utf-8")
     limit = _rsa_capacity(key.key_size, padding_mode)
-    if len(data) > limit:
+
+    if len(data) <= limit:
+        return encode_bytes(key.encrypt(data, pad), out_encoding)
+
+    if long_text != RSA_LONG_HYBRID:
         raise ValueError(
             f"RSA 单次只能加密 {limit} 字节，当前 {len(data)} 字节。"
-            "长文本请先用 AES 加密，再用 RSA 加密那把 AES 密钥"
+            "把「长文本」改成「自动混合加密」，或改用 AES"
         )
-    return encode_bytes(key.encrypt(data, _rsa_padding(padding_mode)), out_encoding)
+
+    aes_key = os.urandom(32)
+    nonce = os.urandom(12)
+    body = AESGCM(aes_key).encrypt(nonce, data, None)
+    wrapped = key.encrypt(aes_key, pad)
+    header = _HYBRID_MAGIC + len(wrapped).to_bytes(2, "big") + wrapped + nonce
+    return encode_bytes(header + body, out_encoding)
 
 
 def _rsa_decode(text: str, privkey: str = "", password: str = "",
                 padding_mode: str = "OAEP-SHA256", out_encoding: str = "base64",
-                **_: object) -> str:
+                long_text: str = RSA_LONG_ERROR, **_: object) -> str:
     _ensure()
     key = _load_private_key(privkey, password)
     if not isinstance(key, rsa.RSAPrivateKey):
         raise ValueError("这个私钥不是 RSA 私钥")
+    pad = _rsa_padding(padding_mode)
     raw = decode_bytes(text, out_encoding)
+
+    if raw[:4] == _HYBRID_MAGIC:  # 混合加密的密文
+        if len(raw) < 6 + 12 + 16:
+            raise ValueError("混合加密密文太短，数据可能不完整")
+        n = int.from_bytes(raw[4:6], "big")
+        wrapped = raw[6 : 6 + n]
+        nonce = raw[6 + n : 6 + n + 12]
+        body = raw[6 + n + 12 :]
+        try:
+            aes_key = key.decrypt(wrapped, pad)
+            return _utf8(AESGCM(aes_key).decrypt(nonce, body, None))
+        except ValueError:
+            raise ValueError("解密失败：私钥不对、填充方式不对，或密文被改动过") from None
+
     try:
-        return _utf8(key.decrypt(raw, _rsa_padding(padding_mode)))
+        return _utf8(key.decrypt(raw, pad))
     except ValueError:
         raise ValueError("解密失败：私钥不对、填充方式不对，或密文被改动过") from None
 
@@ -444,6 +485,58 @@ def _ecc_keygen(outdir: str = "", curve: str = "secp256r1 (P-256)",
     return _write_keypair(outdir, priv, pub, f"ECC {curve}")
 
 
+# ============================================================ 密钥信息
+
+def key_info(path: str, password: str = "") -> dict:
+    """读取 PEM 密钥文件，返回类型、长度与指纹。
+
+    指纹取公钥 DER 编码的 SHA-256——和 SSH、TLS 工具展示的是同一种东西，
+    用来核对"这把密钥是不是我以为的那把"。
+    """
+    _ensure()
+    p = Path(path or "")
+    if not p.is_file():
+        raise ValueError(f"密钥文件不存在：{path}")
+    data = p.read_bytes()
+    pw = password.encode("utf-8") if password else None
+
+    is_private = False
+    try:
+        key = serialization.load_pem_public_key(data)
+    except Exception:  # noqa: BLE001 —— 不是公钥就再试私钥
+        try:
+            key = serialization.load_pem_private_key(data, password=pw)
+            is_private = True
+        except TypeError:
+            raise ValueError("私钥已加密，请填写口令后再查看") from None
+        except Exception as e:  # noqa: BLE001
+            raise ValueError(f"无法解析密钥文件（需 PEM 格式）：{e}") from None
+
+    pub = key.public_key() if is_private else key
+    der = pub.public_bytes(
+        serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    digest = hashlib.sha256(der).hexdigest().upper()
+
+    info: dict[str, str] = {
+        "path": str(p),
+        "private": "私钥" if is_private else "公钥",
+        "fingerprint": " ".join(digest[i : i + 4] for i in range(0, 64, 4)),
+        "bits": "",
+        "curve": "",
+    }
+    if isinstance(pub, rsa.RSAPublicKey):
+        info["kind"] = "RSA"
+        info["bits"] = f"{pub.key_size} 位"
+    elif isinstance(pub, ec.EllipticCurvePublicKey):
+        info["kind"] = "ECC"
+        info["curve"] = pub.curve.name
+        info["bits"] = f"{pub.curve.key_size} 位"
+    else:
+        info["kind"] = type(pub).__name__
+    return info
+
+
 # ============================================================ 注册
 
 _PW = Param("password", "口令", "", "password", "用于派生密钥，务必记牢")
@@ -456,11 +549,11 @@ register(Codec(
     "口令派生密钥的认证加密，推荐默认使用。密文自带盐与迭代次数",
 ))
 
-_AES_KEY = Param("key", "密钥（hex）", "", "text", "16 / 24 / 32 字节，如 32 个字符=16 字节")
+_AES_KEY = Param("key", "密钥", "", "hexkey", "16 / 24 / 32 字节", size=32)
 register(Codec(
     "aes_cbc", "AES-CBC", "现代密码",
     _aes_cbc_encode, _aes_cbc_decode,
-    (_AES_KEY, Param("iv", "初始向量 IV（hex）", "", "text", "16 字节，32 个十六进制字符"),
+    (_AES_KEY, Param("iv", "初始向量 IV", "", "hexkey", "16 字节，必须每次不同", size=16),
      OUT_PARAM),
     "密钥与 IV 都是十六进制。IV 必须随机且每次不同，否则会泄露明文规律",
 ))
@@ -471,18 +564,18 @@ register(Codec(
     "无 IV 的旧模式，相同明文块会得到相同密文块（ECB 企鹅）。仅用于复现谜题",
 ))
 
-_CHACHA_KEY = Param("key", "密钥（hex）", "", "text", "32 字节，64 个十六进制字符")
+_CHACHA_KEY = Param("key", "密钥", "", "hexkey", "32 字节", size=32)
 register(Codec(
     "chacha20", "ChaCha20", "现代密码",
     _chacha20_encode, _chacha20_decode,
-    (_CHACHA_KEY, Param("nonce", "Nonce（hex）", "", "text", "16 字节，32 个十六进制字符"),
+    (_CHACHA_KEY, Param("nonce", "Nonce", "", "hexkey", "16 字节", size=16),
      OUT_PARAM),
     "流密码。注意本实现用 16 字节 nonce；RFC 8439 的 12 字节 nonce 请用 ChaCha20-Poly1305",
 ))
 register(Codec(
     "chacha20_poly1305", "ChaCha20-Poly1305", "现代密码",
     _cc20p_encode, _cc20p_decode,
-    (_CHACHA_KEY, Param("nonce", "Nonce（hex）", "", "text", "12 字节，24 个十六进制字符"),
+    (_CHACHA_KEY, Param("nonce", "Nonce", "", "hexkey", "12 字节", size=12),
      OUT_PARAM),
     "RFC 8439 认证加密，Google 在 TLS 中主推的方案",
 ))
@@ -491,12 +584,14 @@ _RSA_PUB = Param("pubkey", "公钥文件", "", "keyfile", "PEM 格式，加密�
 _RSA_PRIV = Param("privkey", "私钥文件", "", "keyfile", "PEM 格式，解密时使用")
 _RSA_PAD = Param("padding_mode", "填充方式", "OAEP-SHA256", "choice",
                  "PKCS1v15 是旧方案，仅为兼容谜题保留", _RSA_PADDINGS)
+_RSA_LONG = Param("long_text", "长文本", RSA_LONG_ERROR, "choice",
+                  "明文超过密钥容量时怎么办", RSA_LONG_MODES)
 register(Codec(
     "rsa", "RSA", "现代密码",
     _rsa_encode, _rsa_decode,
     (_RSA_PUB, _RSA_PRIV, Param("password", "私钥口令", "", "password", "私钥未加密则留空"),
-     _RSA_PAD, OUT_PARAM),
-    "公钥加密、私钥解密。单次可加密的字节数受密钥长度限制，长文本请配合 AES 使用",
+     _RSA_PAD, _RSA_LONG, OUT_PARAM),
+    "公钥加密、私钥解密。单次可加密的字节数受密钥长度限制，长文本可开混合加密",
     actions=(Action(
         "keygen", "生成 RSA 密钥对", _rsa_keygen,
         (Param("outdir", "输出目录", "", "dir", "写入 private.pem / public.pem"),

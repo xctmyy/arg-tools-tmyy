@@ -15,3 +15,10 @@ from src.ui.pages.base import BasePage
 class MediaPage(BasePage):
     title = "多媒体"
     description = "音频 / 图像 / 视频的加工与二维码处理"
+
+    planned = (
+        "音频：裁剪、倒放、变速、格式转换、波形预览",
+        "图像：缩放、裁剪、格式转换、加水印、批量处理",
+        "视频：抽帧、截取、格式转换",
+        "二维码 / 条码：生成与识别",
+    )

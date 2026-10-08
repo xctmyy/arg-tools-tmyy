@@ -228,6 +228,141 @@ class TestAsymmetric(unittest.TestCase):
 
 
 @needs_lib
+class TestKeyInfo(unittest.TestCase):
+    """密钥信息：类型 / 长度 / 曲线 / 指纹。指纹是核对密钥身份的依据。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.root = Path(cls._tmp.name)
+        cls.rsa_dir = cls.root / "rsa"
+        cls.ecc_dir = cls.root / "ecc"
+        crypto.run_action("rsa", "keygen", outdir=str(cls.rsa_dir), bits="2048")
+        crypto.run_action(
+            "ecc", "keygen", outdir=str(cls.ecc_dir), curve="secp384r1 (P-384)"
+        )
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._tmp.cleanup()
+
+    def test_rsa_public(self) -> None:
+        info = crypto.key_info(str(self.rsa_dir / "public.pem"))
+        self.assertEqual(info["kind"], "RSA")
+        self.assertEqual(info["bits"], "2048 位")
+        self.assertEqual(info["private"], "公钥")
+        self.assertEqual(len(info["fingerprint"].replace(" ", "")), 64)
+
+    def test_rsa_private_recognised(self) -> None:
+        info = crypto.key_info(str(self.rsa_dir / "private.pem"))
+        self.assertEqual(info["private"], "私钥")
+        self.assertEqual(info["kind"], "RSA")
+
+    def test_pair_shares_fingerprint(self) -> None:
+        """同一密钥对的公钥与私钥指纹必须一致——这正是指纹存在的意义。"""
+        pub = crypto.key_info(str(self.rsa_dir / "public.pem"))["fingerprint"]
+        priv = crypto.key_info(str(self.rsa_dir / "private.pem"))["fingerprint"]
+        self.assertEqual(pub, priv)
+
+    def test_different_keys_have_different_fingerprints(self) -> None:
+        a = crypto.key_info(str(self.rsa_dir / "public.pem"))["fingerprint"]
+        b = crypto.key_info(str(self.ecc_dir / "public.pem"))["fingerprint"]
+        self.assertNotEqual(a, b)
+
+    def test_ecc_reports_curve(self) -> None:
+        info = crypto.key_info(str(self.ecc_dir / "public.pem"))
+        self.assertEqual(info["kind"], "ECC")
+        self.assertIn("secp384r1", info["curve"])
+
+    def test_missing_file(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            crypto.key_info(str(self.root / "nope.pem"))
+        self.assertIn("不存在", str(ctx.exception))
+
+    def test_encrypted_private_needs_password(self) -> None:
+        d = self.root / "rsa_enc"
+        crypto.run_action("rsa", "keygen", outdir=str(d), bits="2048", password="pw")
+        with self.assertRaises(ValueError) as ctx:
+            crypto.key_info(str(d / "private.pem"))
+        self.assertIn("口令", str(ctx.exception))
+        self.assertEqual(crypto.key_info(str(d / "private.pem"), "pw")["private"], "私钥")
+
+
+@needs_lib
+class TestHybridEncryption(unittest.TestCase):
+    """RSA 单次只能加密约 190 字节，长文本走混合加密（RSA 包 AES 密钥）。"""
+
+    LONG = "很长的正文内容，用来触发混合加密路径。" * 40
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.root = Path(cls._tmp.name)
+        cls.dir = cls.root / "rsa"
+        cls.other = cls.root / "other"
+        crypto.run_action("rsa", "keygen", outdir=str(cls.dir), bits="2048")
+        crypto.run_action("rsa", "keygen", outdir=str(cls.other), bits="2048")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._tmp.cleanup()
+
+    def _pub(self) -> str:
+        return str(self.dir / "public.pem")
+
+    def _priv(self) -> str:
+        return str(self.dir / "private.pem")
+
+    def test_hybrid_round_trip(self) -> None:
+        ct = crypto.encode(self.LONG, "rsa", pubkey=self._pub(),
+                           long_text="自动混合加密")
+        self.assertEqual(
+            crypto.decode(ct, "rsa", privkey=self._priv(), long_text="自动混合加密"),
+            self.LONG,
+        )
+
+    def test_hybrid_ciphertext_is_tagged(self) -> None:
+        ct = crypto.encode(self.LONG, "rsa", pubkey=self._pub(),
+                           long_text="自动混合加密")
+        raw = crypto_modern.decode_bytes(ct, "base64")
+        self.assertEqual(raw[:4], b"AXH1")
+
+    def test_short_text_uses_plain_rsa(self) -> None:
+        """短文本不该被套上混合加密的壳——保持与普通 RSA 密文兼容。"""
+        ct = crypto.encode("hi", "rsa", pubkey=self._pub(),
+                           long_text="自动混合加密")
+        raw = crypto_modern.decode_bytes(ct, "base64")
+        self.assertNotEqual(raw[:4], b"AXH1")
+
+    def test_short_ciphertext_decrypts_without_hybrid_flag(self) -> None:
+        """用默认参数（报错模式）也要能解开短文本，说明两种模式互通。"""
+        ct = crypto.encode("hi", "rsa", pubkey=self._pub(),
+                           long_text="自动混合加密")
+        self.assertEqual(crypto.decode(ct, "rsa", privkey=self._priv()), "hi")
+
+    def test_long_text_without_hybrid_raises(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            crypto.encode(self.LONG, "rsa", pubkey=self._pub())
+        self.assertIn("只能加密", str(ctx.exception))
+
+    def test_hybrid_wrong_private_key(self) -> None:
+        ct = crypto.encode(self.LONG, "rsa", pubkey=self._pub(),
+                           long_text="自动混合加密")
+        with self.assertRaises(ValueError):
+            crypto.decode(ct, "rsa", privkey=str(self.other / "private.pem"))
+
+    def test_hybrid_handles_unicode(self) -> None:
+        text = "混合加密也要能处理 emoji 🎯 与中文"
+        ct = crypto.encode(text, "rsa", pubkey=self._pub(),
+                           long_text="自动混合加密")
+        self.assertEqual(
+            crypto.decode(ct, "rsa", privkey=self._priv(),
+                          long_text="自动混合加密"),
+            text,
+        )
+
+
+@needs_lib
 class TestActions(unittest.TestCase):
     def test_unknown_action(self) -> None:
         with self.assertRaises(ValueError):

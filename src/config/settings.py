@@ -23,8 +23,8 @@ DATA_DIR = ROOT_DIR / "data"         # 运行期数据（工程文件、缓存�
 ASSETS_DIR = ROOT_DIR / "assets"     # 图标、字体等静态资源，按需创建
 
 # --- 窗口 ---
-WINDOW_SIZE = (1180, 720)
-WINDOW_MIN_SIZE = (960, 620)
+WINDOW_SIZE = (1320, 820)
+WINDOW_MIN_SIZE = (1040, 660)
 
 
 class AppearanceMode(str, Enum):

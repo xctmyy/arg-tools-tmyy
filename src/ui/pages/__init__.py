@@ -13,6 +13,7 @@ from src.ui.pages.base import BasePage
 from src.ui.pages.chain_page import ChainPage
 from src.ui.pages.crypto_page import CryptoPage
 from src.ui.pages.media_page import MediaPage
+from src.ui.pages.modern_crypto_page import ModernCryptoPage
 from src.ui.pages.project_page import ProjectPage
 from src.ui.pages.stego_page import StegoPage
 
@@ -20,6 +21,7 @@ from src.ui.pages.stego_page import StegoPage
 PAGES: dict[str, BasePage] = {
     "project": ProjectPage(),
     "crypto": CryptoPage(),
+    "modern_crypto": ModernCryptoPage(),
     "stego": StegoPage(),
     "media": MediaPage(),
     "analysis": AnalysisPage(),

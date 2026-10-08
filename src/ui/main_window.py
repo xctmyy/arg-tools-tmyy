@@ -10,8 +10,9 @@ from typing import TYPE_CHECKING
 
 import customtkinter as ctk
 
-from src.config.settings import APP_TAGLINE, APP_VERSION, AppSettings
+from src.config.settings import APP_NAME, APP_TAGLINE, APP_VERSION, AppSettings
 from src.ui.pages import PAGES
+from src.ui.widgets import ACCENT, ACCENT_HOVER
 
 if TYPE_CHECKING:
     from src.ui.pages.base import BasePage
@@ -58,46 +59,51 @@ class MainWindow(ctk.CTk):
         self.content.grid_rowconfigure(0, weight=1)
 
     def _build_sidebar(self) -> None:
-        sidebar = ctk.CTkFrame(self, width=208, corner_radius=0)
+        sidebar = ctk.CTkFrame(self, width=222, corner_radius=0,
+                               fg_color=("gray90", "gray11"))
         sidebar.grid(row=0, column=0, sticky="nsw")
         sidebar.grid_propagate(False)
-        sidebar.grid_rowconfigure(len(PAGES) + 2, weight=1)
+        sidebar.grid_columnconfigure(0, weight=1)
+        sidebar.grid_rowconfigure(len(PAGES) + 3, weight=1)
         self.sidebar = sidebar
 
+        brand = ctk.CTkFrame(sidebar, fg_color="transparent")
+        brand.grid(row=0, column=0, sticky="ew", padx=18, pady=(20, 4))
         ctk.CTkLabel(
-            sidebar,
-            text="arg.xc",
-            font=ctk.CTkFont(size=21, weight="bold"),
-        ).grid(row=0, column=0, padx=20, pady=(22, 0), sticky="w")
+            brand, text=APP_NAME, anchor="w",
+            font=ctk.CTkFont(size=17, weight="bold"),
+        ).pack(anchor="w")
+        ctk.CTkLabel(
+            brand, text=APP_TAGLINE, anchor="w", font=ctk.CTkFont(size=11),
+            text_color=("gray45", "gray52"),
+        ).pack(anchor="w", pady=(2, 0))
 
-        ctk.CTkLabel(
-            sidebar,
-            text=APP_TAGLINE,
-            font=ctk.CTkFont(size=11),
-            text_color=("gray45", "gray60"),
-        ).grid(row=1, column=0, padx=20, pady=(0, 16), sticky="w")
+        ctk.CTkFrame(sidebar, height=1, fg_color=("gray84", "gray26")).grid(
+            row=1, column=0, sticky="ew", padx=18, pady=(14, 10)
+        )
 
         for i, (key, page) in enumerate(PAGES.items(), start=2):
             btn = ctk.CTkButton(
                 sidebar,
                 text=page.title,
                 anchor="w",
-                height=34,
+                height=36,
                 corner_radius=6,
                 fg_color="transparent",
-                text_color=("gray20", "gray85"),
-                hover_color=("gray80", "gray28"),
+                text_color=("gray25", "gray80"),
+                hover_color=("gray84", "gray22"),
                 command=lambda k=key: self._select(k),
             )
-            btn.grid(row=i, column=0, padx=12, pady=3, sticky="ew")
+            btn.grid(row=i, column=0, padx=12, pady=2, sticky="ew")
             self._buttons[key] = btn
 
         ctk.CTkLabel(
             sidebar,
-            text=f"v{APP_VERSION}  ·  骨架阶段",
+            text=f"v{APP_VERSION}  ·  开发中",
+            anchor="w",
             font=ctk.CTkFont(size=10),
-            text_color=("gray55", "gray50"),
-        ).grid(row=len(PAGES) + 3, column=0, padx=20, pady=(0, 16), sticky="sw")
+            text_color=("gray55", "gray45"),
+        ).grid(row=len(PAGES) + 3, column=0, padx=18, pady=(0, 16), sticky="sw")
 
     # -------------------------------------------------------------- 页面切换
     def _select(self, key: str) -> None:
@@ -117,4 +123,9 @@ class MainWindow(ctk.CTk):
 
         self._current = key
         for k, btn in self._buttons.items():
-            btn.configure(fg_color=("gray78", "gray24") if k == key else "transparent")
+            active = k == key
+            btn.configure(
+                fg_color=ACCENT if active else "transparent",
+                hover_color=ACCENT_HOVER if active else ("gray84", "gray22"),
+                text_color=("#ffffff", "#ffffff") if active else ("gray25", "gray80"),
+            )

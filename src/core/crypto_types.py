@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import re
+import secrets
 from dataclasses import dataclass
 from typing import Callable
 
@@ -23,10 +24,11 @@ class Param:
     kind 取值：
         text      单行文本框
         int       整数输入（窄框）
-        password  口令（掩码显示）
+        password  口令（掩码显示，带显示/隐藏切换）
         keyfile   密钥文件路径 + 浏览按钮
         dir       目录路径 + 选择按钮
         choice    下拉选择，需同时给 choices
+        hexkey    十六进制密钥/IV/Nonce，带「生成」随机值按钮，用 size 指定字节数
     """
 
     name: str
@@ -35,6 +37,8 @@ class Param:
     kind: str = "text"
     hint: str = ""
     choices: tuple[str, ...] = ()
+    #: hexkey 的字节长度，「生成」按钮据此产生随机值
+    size: int = 0
 
 
 @dataclass(frozen=True)
@@ -97,6 +101,16 @@ def as_int(value: object, label: str) -> int:
         return int(str(value).strip())
     except (TypeError, ValueError):
         raise ValueError(f"参数「{label}」需要整数，收到 {value!r}") from None
+
+
+def random_hex(nbytes: int) -> str:
+    """生成 nbytes 字节的密码学安全随机数，返回十六进制字符串。
+
+    用 `secrets` 而不是 `random`——后者是可预测的伪随机，拿来生成密钥等于没加密。
+    """
+    if nbytes <= 0:
+        raise ValueError("随机字节数必须为正")
+    return secrets.token_hex(nbytes)
 
 
 def illegal_chars(raw: str, pattern: str) -> str:

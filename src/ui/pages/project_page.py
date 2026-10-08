@@ -2,8 +2,8 @@
 
 界面分三块：
 
-    工具栏    新建 / 打开 / 保存工程 + 工程名
-    左侧      线索列表（带搜索与标签筛选）
+    工具栏    新建 / 打开 / 保存工程 + 最近工程
+    左侧      线索库（带搜索）
     右侧      线索编辑器（标题 / 来源 / 标签 / 内容）
 
 线索的增删改会立即落盘，避免忘存导致丢数据。
@@ -19,6 +19,7 @@ import customtkinter as ctk
 from src.config.settings import save_settings
 from src.core import store
 from src.ui.pages.base import BasePage
+from src.ui.widgets import Card, StatusLine
 
 NO_RECENT = "最近工程"
 
@@ -47,124 +48,113 @@ class ProjectPage(BasePage):
         self._build_list(main)
         self._build_editor(main)
 
+        self._status = StatusLine(body)
+        self._status.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+
         self._set_enabled(False)
         self._refresh_recent()
         self._set_status("还没有打开工程，点左上角「新建工程」或「打开工程」开始")
 
     def _build_toolbar(self, body: ctk.CTkFrame) -> None:
         bar = ctk.CTkFrame(body, fg_color="transparent")
-        bar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        bar.grid(row=0, column=0, sticky="ew", pady=(0, 10))
 
         for text, cmd, width in (
-            ("新建工程", self._new_project, 88),
-            ("打开工程", self._open_project, 88),
+            ("新建工程", self._new_project, 90),
+            ("打开工程", self._open_project, 90),
             ("保存", self._save_project, 64),
         ):
-            ctk.CTkButton(bar, text=text, width=width, command=cmd).pack(
-                side="left", padx=(0, 6)
-            )
+            ctk.CTkButton(bar, text=text, width=width, height=30,
+                          corner_radius=6, command=cmd).pack(side="left", padx=(0, 6))
 
         self._recent_menu = ctk.CTkOptionMenu(
-            bar, values=[NO_RECENT], width=230, command=self._open_recent
+            bar, values=[NO_RECENT], width=240, command=self._open_recent
         )
         self._recent_menu.pack(side="right")
 
         self._project_label = ctk.CTkLabel(
-            bar, text="未打开工程", font=ctk.CTkFont(size=11),
-            text_color=("gray45", "gray60"),
+            bar, text="未打开工程", anchor="w", font=ctk.CTkFont(size=11),
+            text_color=("gray45", "gray62"),
         )
         self._project_label.pack(side="left", padx=(10, 0))
 
-        self._status = ctk.CTkLabel(
-            body, text="", font=ctk.CTkFont(size=11), anchor="w"
-        )
-        self._status.grid(row=2, column=0, sticky="ew", pady=(6, 0))
-
     def _build_list(self, parent: ctk.CTkFrame) -> None:
-        panel = ctk.CTkFrame(parent)
-        panel.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
-        panel.grid_rowconfigure(2, weight=1)
-        panel.grid_columnconfigure(0, weight=1)
+        card = Card(parent, title="线索库")
+        card.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        b = card.body
+        b.grid_rowconfigure(1, weight=1)
 
-        head = ctk.CTkFrame(panel, fg_color="transparent")
-        head.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 4))
+        head = ctk.CTkFrame(b, fg_color="transparent")
+        head.grid(row=0, column=0, sticky="ew", pady=(0, 6))
         head.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(head, text="线索库", font=ctk.CTkFont(size=13, weight="bold")).grid(
-            row=0, column=0, sticky="w"
-        )
-        self._count_label = ctk.CTkLabel(
-            head, text="", font=ctk.CTkFont(size=11), text_color=("gray45", "gray60")
-        )
-        self._count_label.grid(row=0, column=1, sticky="e")
 
-        self._search = ctk.CTkEntry(panel, placeholder_text="搜索标题 / 内容 / 标签")
-        self._search.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 6))
+        self._search = ctk.CTkEntry(head, placeholder_text="搜索标题 / 内容 / 标签")
+        self._search.grid(row=0, column=0, sticky="ew", padx=(0, 6))
         self._search.bind("<KeyRelease>", lambda _e: self._refresh_list())
 
-        self._list = ctk.CTkScrollableFrame(panel, width=250, label_text="")
-        self._list.grid(row=2, column=0, sticky="nsew", padx=6, pady=(0, 6))
+        self._count_label = ctk.CTkLabel(
+            head, text="", font=ctk.CTkFont(size=11), text_color=("gray45", "gray62")
+        )
+        self._count_label.grid(row=0, column=1)
+
+        self._list = ctk.CTkScrollableFrame(b, width=240)
+        self._list.grid(row=1, column=0, sticky="nsew")
         self._list.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkButton(
-            panel, text="＋ 新建线索", command=self._new_clue
-        ).grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 10))
+        ctk.CTkButton(b, text="＋ 新建线索", height=30, corner_radius=6,
+                      command=self._new_clue).grid(row=2, column=0,
+                                                   sticky="ew", pady=(8, 0))
 
     def _build_editor(self, parent: ctk.CTkFrame) -> None:
-        panel = ctk.CTkFrame(parent)
-        panel.grid(row=0, column=1, sticky="nsew")
-        panel.grid_columnconfigure(0, weight=1)
-        panel.grid_rowconfigure(4, weight=1)
+        card = Card(parent, title="线索详情")
+        card.grid(row=0, column=1, sticky="nsew")
+        b = card.body
+        b.grid_rowconfigure(4, weight=1)
 
-        ctk.CTkLabel(panel, text="线索详情", font=ctk.CTkFont(size=13, weight="bold")).grid(
-            row=0, column=0, sticky="w", padx=14, pady=(12, 6)
-        )
-
-        form = ctk.CTkFrame(panel, fg_color="transparent")
-        form.grid(row=1, column=0, sticky="ew", padx=14)
+        form = ctk.CTkFrame(b, fg_color="transparent")
+        form.grid(row=0, column=0, sticky="ew")
         form.grid_columnconfigure(1, weight=1)
 
         self._f_title = self._form_row(form, 0, "标题")
         self._f_source = self._form_row(form, 1, "来源")
         self._f_tags = self._form_row(form, 2, "标签", "用逗号或空格分隔")
 
-        ctk.CTkLabel(panel, text="内容").grid(
-            row=3, column=0, sticky="w", padx=14, pady=(10, 2)
-        )
-        self._f_content = ctk.CTkTextbox(panel, wrap="word")
-        self._f_content.grid(row=4, column=0, sticky="nsew", padx=14)
+        ctk.CTkLabel(b, text="内容", anchor="w",
+                     font=ctk.CTkFont(size=11)).grid(row=3, column=0,
+                                                     sticky="w", pady=(10, 2))
+        self._f_content = ctk.CTkTextbox(b, wrap="word")
+        self._f_content.grid(row=4, column=0, sticky="nsew")
 
-        actions = ctk.CTkFrame(panel, fg_color="transparent")
-        actions.grid(row=5, column=0, sticky="ew", padx=14, pady=12)
-        self._btn_save = ctk.CTkButton(actions, text="保存线索", command=self._save_clue)
+        actions = ctk.CTkFrame(b, fg_color="transparent")
+        actions.grid(row=5, column=0, sticky="ew", pady=(12, 0))
+        self._btn_save = ctk.CTkButton(actions, text="保存线索", height=30,
+                                       corner_radius=6, command=self._save_clue)
         self._btn_save.pack(side="left", padx=(0, 6))
         self._btn_delete = ctk.CTkButton(
-            actions, text="删除", width=64, command=self._delete_clue,
+            actions, text="删除", width=64, height=30, corner_radius=6,
             fg_color=("#c0392b", "#8b2c22"), hover_color=("#a93226", "#6f231b"),
+            command=self._delete_clue,
         )
         self._btn_delete.pack(side="left")
 
-    def _form_row(
-        self, parent: ctk.CTkFrame, row: int, label: str, hint: str = ""
-    ) -> ctk.CTkEntry:
-        ctk.CTkLabel(parent, text=label, width=48, anchor="w").grid(
-            row=row, column=0, sticky="w", pady=3
-        )
+    def _form_row(self, parent: ctk.CTkFrame, row: int, label: str,
+                  hint: str = "") -> ctk.CTkEntry:
+        ctk.CTkLabel(parent, text=label, width=48, anchor="w",
+                     font=ctk.CTkFont(size=11)).grid(row=row, column=0,
+                                                     sticky="w", pady=3)
         entry = ctk.CTkEntry(parent, placeholder_text=hint)
         entry.grid(row=row, column=1, sticky="ew", pady=3)
         return entry
 
     # ------------------------------------------------------------------ 状态
     def _set_status(self, text: str, error: bool = False) -> None:
-        self._status.configure(
-            text=text,
-            text_color=("#c0392b", "#ff8a80") if error else ("gray40", "gray65"),
-        )
+        self._status.error(text) if error else self._status.info(text)
 
     def _set_enabled(self, on: bool) -> None:
         state = "normal" if on else "disabled"
-        for w in (self._f_title, self._f_source, self._f_tags, self._f_content,
-                  self._btn_save, self._btn_delete, self._search):
-            w.configure(state=state)
+        for widget in (self._f_title, self._f_source, self._f_tags, self._f_content,
+                       self._btn_save, self._btn_delete, self._search):
+            widget.configure(state=state)
 
     def _sync_toolbar(self) -> None:
         if self.project is None:
@@ -190,14 +180,12 @@ class ProjectPage(BasePage):
 
     def _open_project(self) -> None:
         folder = filedialog.askdirectory(title="选择工程目录")
-        if not folder:
-            return
-        self._open_path(Path(folder))
+        if folder:
+            self._open_path(Path(folder))
 
     def _open_recent(self, path: str) -> None:
-        if path == NO_RECENT:
-            return
-        self._open_path(Path(path))
+        if path != NO_RECENT:
+            self._open_path(Path(path))
 
     def _open_path(self, root: Path) -> None:
         if not store.Project.is_project(root):
@@ -248,24 +236,20 @@ class ProjectPage(BasePage):
 
     # ------------------------------------------------------------------ 线索
     def _refresh_list(self) -> None:
-        for w in self._list_widgets:
-            w.destroy()
+        for widget in self._list_widgets:
+            widget.destroy()
         self._list_widgets.clear()
         if self.project is None:
             return
 
-        keyword = self._search.get().strip()
-        clues = self.project.find_clues(keyword)
-        self._count_label.configure(
-            text=f"{len(clues)}/{len(self.project.clues)}"
-        )
+        clues = self.project.find_clues(self._search.get().strip())
+        self._count_label.configure(text=f"{len(clues)}/{len(self.project.clues)}")
 
         if not clues:
-            label = ctk.CTkLabel(
-                self._list, text="没有匹配的线索", font=ctk.CTkFont(size=11),
-                text_color=("gray50", "gray60"),
-            )
-            label.grid(row=0, column=0, pady=8)
+            label = ctk.CTkLabel(self._list, text="没有匹配的线索",
+                                 font=ctk.CTkFont(size=11),
+                                 text_color=("gray50", "gray60"))
+            label.grid(row=0, column=0, pady=10)
             self._list_widgets.append(label)
             return
 
@@ -274,7 +258,7 @@ class ProjectPage(BasePage):
             if clue.tags:
                 title += f"   #{' #'.join(clue.tags)}"
             btn = ctk.CTkButton(
-                self._list, text=title, anchor="w", height=30,
+                self._list, text=title, anchor="w", height=30, corner_radius=6,
                 fg_color=("gray78", "gray24") if clue.id == self._editing_id
                 else "transparent",
                 text_color=("gray15", "gray90"),
@@ -316,15 +300,13 @@ class ProjectPage(BasePage):
         source = self._f_source.get().strip()
 
         if self._editing_id is None:
-            clue = self.project.add_clue(
-                title=title, content=content, source=source, tags=tags
-            )
+            clue = self.project.add_clue(title=title, content=content,
+                                         source=source, tags=tags)
             self._editing_id = clue.id
             message = f"已新增线索「{title or '无标题'}」"
         else:
-            if not self.project.update_clue(
-                self._editing_id, title=title, content=content, source=source, tags=tags
-            ):
+            if not self.project.update_clue(self._editing_id, title=title,
+                                            content=content, source=source, tags=tags):
                 self._set_status("线索已不存在，可能被删掉了", error=True)
                 return
             message = f"已更新线索「{title or '无标题'}」"

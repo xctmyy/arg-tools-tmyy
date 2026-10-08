@@ -892,6 +892,24 @@ def run_action(method: str, action: str, **params: object) -> str:
     raise ValueError(f"{codec.label} 没有名为 {action!r} 的操作")
 
 
+def key_info(path: str, password: str = "") -> dict:
+    """读取 PEM 密钥文件的信息（类型 / 长度 / 指纹）。
+
+    只对 RSA / ECC 这类非对称算法有意义。放在这里作为统一门面，
+    界面层就不必直接依赖 crypto_modern。
+    """
+    from src.core import crypto_modern
+
+    return crypto_modern.key_info(path, password)
+
+
+def modern_available() -> bool:
+    """现代密码算法是否可用（是否装了 cryptography）。界面据此显示提示。"""
+    from src.core import crypto_modern
+
+    return crypto_modern.HAVE_CRYPTOGRAPHY
+
+
 def encode(text: str, method: str, **params: object) -> str:
     """加密 / 编码。"""
     codec = REGISTRY.get(method)
