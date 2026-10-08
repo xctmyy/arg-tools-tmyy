@@ -110,6 +110,7 @@ class MainWindow(ctk.CTk):
         frame = self._frames.get(key)
         if frame is None:
             page: BasePage = PAGES[key]
+            page.window = self  # 让页面能访问 settings 等窗口级状态
             frame = page.build(self.content)
             self._frames[key] = frame
         frame.grid(row=0, column=0, sticky="nsew")

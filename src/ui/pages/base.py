@@ -16,6 +16,8 @@ class BasePage:
     title: str = "未命名"
     #: 页面副标题（一句话说明）
     description: str = ""
+    #: 由主窗口在构建前注入，页面可借此访问 window.settings 等
+    window: object | None = None
 
     # ------------------------------------------------------------------ 框架
     def build(self, master: ctk.CTkFrame) -> ctk.CTkFrame:

@@ -6,7 +6,14 @@
 
 from __future__ import annotations
 
-from src.config.settings import APP_NAME, WINDOW_MIN_SIZE, WINDOW_SIZE, AppSettings
+from src.config.settings import (
+    APP_NAME,
+    WINDOW_MIN_SIZE,
+    WINDOW_SIZE,
+    AppSettings,
+    load_settings,
+    save_settings,
+)
 from src.ui.main_window import MainWindow
 from src.utils.logger import get_logger
 
@@ -17,7 +24,7 @@ class ArgToolboxApp:
     """应用门面。"""
 
     def __init__(self, settings: AppSettings | None = None) -> None:
-        self.settings = settings or AppSettings()
+        self.settings = settings or load_settings()
         self.window: MainWindow | None = None
 
     def run(self) -> None:
@@ -29,4 +36,5 @@ class ArgToolboxApp:
             settings=self.settings,
         )
         self.window.mainloop()
+        save_settings(self.settings)
         log.info("%s 已退出", APP_NAME)
