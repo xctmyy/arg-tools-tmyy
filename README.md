@@ -22,7 +22,8 @@ python main.py
 
 - **项目** —— 新建 / 打开工程，线索库增删改查与搜索，最近工程记录
 - **密码 / 编码** —— 23 种算法，含凯撒、维吉尼亚、Playfair、书本密码、
-  Base16/32/64、摩斯、Brainfuck、MD5/SHA/CRC；支持编码类型自动识别与暴力枚举
+  Base16/32/64、摩斯、Brainfuck、MD5/SHA/CRC；支持编码类型自动识别与暴力枚举。
+  运算在后台线程执行，大输入不会冻住界面
 
 其余页面（隐写 / 多媒体 / 文件网络 / 谜题链）仍为占位。
 
@@ -32,7 +33,8 @@ python main.py
 python -m unittest discover -s tests -t .
 ```
 
-40 项单元测试，覆盖算法的已知向量与往返一致性、工程持久化、线索 CRUD。
+52 项单元测试，覆盖算法的已知向量与往返一致性、工程持久化、线索 CRUD、
+后台任务调度。
 
 > **环境要求**：Python 3.10+，且解释器需自带 `tkinter`（CustomTkinter 的底层依赖）。
 > Windows / macOS 官网安装包默认包含；若报 `No module named 'tkinter'`，
@@ -65,6 +67,7 @@ arg-tools-tmyy/
     │   └── checklist.py    试玩与设计审查
     ├── ui/
     │   ├── main_window.py  主窗口外壳
+    │   ├── async_task.py   后台任务：把耗时运算挪出 UI 线程
     │   └── pages/          功能页，一页一文件
     └── utils/              日志、路径等通用工具
 tests/                      单元测试

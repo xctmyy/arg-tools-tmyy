@@ -3,6 +3,12 @@
 界面完全由 `core.crypto.REGISTRY` 驱动：算法下拉、参数表单、暴力枚举开关
 都是读注册表生成的。因此新增算法只需改 core 层，本文件不用动。
 
+线程模型
+--------
+编码 / 解码 / 暴力枚举都在后台线程执行（`src.ui.async_task.TaskRunner`），
+避免大文本或 Brainfuck 解释把界面冻住。所有控件读写都发生在主线程：
+启动前先把输入和参数快照成纯数据，计算完再回主线程写结果。
+
 布局
 ----
     工具栏    算法下拉 + 算法说明
@@ -17,6 +23,7 @@ from __future__ import annotations
 import customtkinter as ctk
 
 from src.core import crypto
+from src.ui.async_task import TaskRunner
 from src.ui.pages.base import BasePage
 
 MONO = ("Consolas", 12)
@@ -34,6 +41,8 @@ class CryptoPage(BasePage):
         }
         self._param_widgets: dict[str, ctk.CTkEntry] = {}
         self._current: crypto.Codec = self._codecs[0]
+        self._action_buttons: list[ctk.CTkButton] = []
+        self._tasks: TaskRunner | None = None
 
     # ------------------------------------------------------------------ 工具
     @staticmethod
@@ -63,6 +72,7 @@ class CryptoPage(BasePage):
         self._build_actions(body)
         self._build_results(body)
 
+        self._tasks = TaskRunner(body)
         self._on_method_change(self._method_var.get())
 
     def _build_toolbar(self, body: ctk.CTkFrame) -> None:
@@ -73,13 +83,14 @@ class CryptoPage(BasePage):
         ctk.CTkLabel(bar, text="算法").grid(row=0, column=0, padx=(0, 8))
 
         self._method_var = ctk.StringVar(value=self._display(self._codecs[0]))
-        ctk.CTkOptionMenu(
+        self._method_menu = ctk.CTkOptionMenu(
             bar,
             variable=self._method_var,
             values=[self._display(c) for c in self._codecs],
             width=240,
             command=self._on_method_change,
-        ).grid(row=0, column=1, sticky="w")
+        )
+        self._method_menu.grid(row=0, column=1, sticky="w")
 
         self._note = ctk.CTkLabel(
             bar, text="", font=ctk.CTkFont(size=11), text_color=("gray45", "gray60")
@@ -110,9 +121,9 @@ class CryptoPage(BasePage):
         row.grid(row=3, column=0, sticky="ew", pady=(10, 4))
 
         def btn(text: str, cmd, width: int = 88) -> None:
-            ctk.CTkButton(row, text=text, width=width, command=cmd).pack(
-                side="left", padx=(0, 6)
-            )
+            b = ctk.CTkButton(row, text=text, width=width, command=cmd)
+            b.pack(side="left", padx=(0, 6))
+            self._action_buttons.append(b)
 
         btn("编码 →", self._do_encode)
         btn("解码 ←", self._do_decode)
@@ -126,6 +137,7 @@ class CryptoPage(BasePage):
             fg_color=("gray70", "gray30"), hover_color=("gray60", "gray40"),
         )
         self._brute_btn.pack(side="left", padx=(0, 6))
+        self._action_buttons.append(self._brute_btn)
 
         self._status = ctk.CTkLabel(
             body, text="", font=ctk.CTkFont(size=11), anchor="w"
@@ -137,6 +149,21 @@ class CryptoPage(BasePage):
         self._results.grid(row=5, column=0, sticky="ew")
         self._results.grid_columnconfigure(0, weight=1)
         self._results.grid_remove()  # 默认隐藏
+
+    # ------------------------------------------------------------------ 忙碌态
+    def _set_busy(self, busy: bool) -> None:
+        """运算期间禁用交互，防止重复提交与参数被改到一半。"""
+        state = "disabled" if busy else "normal"
+        for b in self._action_buttons:
+            b.configure(state=state)
+        self._method_menu.configure(state=state)
+        if not busy:
+            self._sync_brute_button()
+
+    def _sync_brute_button(self) -> None:
+        self._brute_btn.configure(
+            state="normal" if self._current.name in BRUTE_FORCE_METHODS else "disabled"
+        )
 
     # ------------------------------------------------------------------ 交互
     def _on_method_change(self, _display: str) -> None:
@@ -159,9 +186,7 @@ class CryptoPage(BasePage):
             self._param_widgets[p.name] = entry
 
         self._note.configure(text=codec.note)
-        self._brute_btn.configure(
-            state="normal" if codec.name in BRUTE_FORCE_METHODS else "disabled"
-        )
+        self._sync_brute_button()
         self._hide_results()
         self._set_status("")
 
@@ -172,18 +197,38 @@ class CryptoPage(BasePage):
         self._run(crypto.decode)
 
     def _run(self, fn) -> None:
+        """快照输入与参数（主线程），再把计算丢到后台线程。"""
+        if self._tasks is None:
+            return
         text = self._input.get("1.0", "end-1c")
         if not text:
             self._set_status("输入为空", error=True)
             return
-        try:
-            result = fn(text, self._current.name, **self._params())
-        except ValueError as e:
-            self._set_status(str(e), error=True)
+
+        method = self._current.name
+        label = self._current.label
+        params = self._params()  # 必须在主线程读取控件
+
+        if not self._tasks.run(
+            lambda: fn(text, method, **params),
+            on_done=lambda result: self._on_computed(result, label),
+            on_error=self._on_compute_error,
+        ):
+            self._set_status("上一次运算还没结束，请稍候", error=True)
             return
+
+        self._set_busy(True)
+        self._set_status(f"{label} 计算中…")
+
+    def _on_computed(self, result: str, label: str) -> None:
+        self._set_busy(False)
         self._output.delete("1.0", "end")
         self._output.insert("1.0", result)
-        self._set_status(f"{self._current.label} 完成，输出 {len(result)} 字符")
+        self._set_status(f"{label} 完成，输出 {len(result)} 字符")
+
+    def _on_compute_error(self, error: Exception) -> None:
+        self._set_busy(False)
+        self._set_status(str(error) or error.__class__.__name__, error=True)
 
     def _swap(self) -> None:
         text = self._output.get("1.0", "end-1c")
@@ -220,16 +265,27 @@ class CryptoPage(BasePage):
         self._set_status(f"可能是：{names}")
 
     def _brute_force(self) -> None:
+        if self._tasks is None:
+            return
         text = self._input.get("1.0", "end-1c")
         if not text:
             self._set_status("输入为空", error=True)
             return
-        try:
-            rows = crypto.brute_force(text, self._current.name)
-        except ValueError as e:
-            self._set_status(str(e), error=True)
+
+        method = self._current.name
+        if not self._tasks.run(
+            lambda: crypto.brute_force(text, method),
+            on_done=self._on_brute_done,
+            on_error=self._on_compute_error,
+        ):
+            self._set_status("上一次运算还没结束，请稍候", error=True)
             return
 
+        self._set_busy(True)
+        self._set_status("枚举中…")
+
+    def _on_brute_done(self, rows: list[tuple[str, str]]) -> None:
+        self._set_busy(False)
         self._hide_results()
         for i, (label, result) in enumerate(rows):
             ctk.CTkLabel(

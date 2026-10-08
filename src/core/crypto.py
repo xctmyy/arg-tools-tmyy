@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import base64
-import binascii
 import hashlib
 import html
 import re
@@ -95,6 +94,25 @@ def _as_int(value: object, label: str) -> int:
         return int(str(value).strip())
     except (TypeError, ValueError):
         raise ValueError(f"参数「{label}」需要整数，收到 {value!r}") from None
+
+
+def _illegal_chars(raw: str, pattern: str) -> str:
+    """找出不合法字符，用于给出比标准库更清楚的中文报错。
+
+    标准库在遇到非 ASCII 输入时抛的是英文 `ValueError`
+    （"string argument should contain only ASCII characters"），
+    直接透给用户很难懂，所以先自己检查一遍字符集。
+    """
+    bad = sorted(set(re.findall(pattern, raw)))
+    return " ".join(bad[:8])
+
+
+def _as_utf8(data: bytes, label: str) -> str:
+    """把解出的字节按 UTF-8 转文本，失败时给出可读的提示。"""
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError as e:
+        raise ValueError(f"{label} 解出的字节不是 UTF-8 文本：{e}") from None
 
 
 # ============================================================ 替换密码
@@ -341,11 +359,15 @@ def _b64_encode(text: str, **_: object) -> str:
 
 def _b64_decode(text: str, **_: object) -> str:
     raw = re.sub(r"\s+", "", text)
+    bad = _illegal_chars(raw, r"[^A-Za-z0-9+/=]")
+    if bad:
+        raise ValueError(f"Base64 只接受 A-Z a-z 0-9 + / =，发现非法字符：{bad}")
     raw += "=" * (-len(raw) % 4)  # 补齐 padding
     try:
-        return base64.b64decode(raw, validate=True).decode("utf-8")
-    except (binascii.Error, UnicodeDecodeError) as e:
+        data = base64.b64decode(raw, validate=True)
+    except ValueError as e:
         raise ValueError(f"不是合法的 Base64：{e}") from None
+    return _as_utf8(data, "Base64")
 
 
 def _b32_encode(text: str, **_: object) -> str:
@@ -354,11 +376,15 @@ def _b32_encode(text: str, **_: object) -> str:
 
 def _b32_decode(text: str, **_: object) -> str:
     raw = re.sub(r"\s+", "", text).upper()
+    bad = _illegal_chars(raw, r"[^A-Z2-7=]")
+    if bad:
+        raise ValueError(f"Base32 只接受 A-Z 2-7 =，发现非法字符：{bad}")
     raw += "=" * (-len(raw) % 8)
     try:
-        return base64.b32decode(raw).decode("utf-8")
-    except (binascii.Error, UnicodeDecodeError) as e:
+        data = base64.b32decode(raw)
+    except ValueError as e:
         raise ValueError(f"不是合法的 Base32：{e}") from None
+    return _as_utf8(data, "Base32")
 
 
 def _b16_encode(text: str, **_: object) -> str:
@@ -367,10 +393,14 @@ def _b16_encode(text: str, **_: object) -> str:
 
 def _b16_decode(text: str, **_: object) -> str:
     raw = re.sub(r"\s+", "", text)
+    bad = _illegal_chars(raw, r"[^0-9A-Fa-f]")
+    if bad:
+        raise ValueError(f"Base16 只接受 0-9 A-F，发现非法字符：{bad}")
     try:
-        return base64.b16decode(raw.upper()).decode("utf-8")
-    except (binascii.Error, UnicodeDecodeError) as e:
+        data = base64.b16decode(raw.upper())
+    except ValueError as e:
         raise ValueError(f"不是合法的 Base16：{e}") from None
+    return _as_utf8(data, "Base16")
 
 
 MORSE: dict[str, str] = {

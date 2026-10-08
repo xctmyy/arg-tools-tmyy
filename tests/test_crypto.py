@@ -162,5 +162,47 @@ class TestBruteForce(unittest.TestCase):
             crypto.brute_force("x", "base64")
 
 
+class TestFriendlyErrors(unittest.TestCase):
+    """错误信息要能直接给用户看，不能把标准库的英文原文透出去。
+
+    背景：base64.b64decode 遇到非 ASCII 输入时抛的是普通 ValueError
+    （"string argument should contain only ASCII characters"）。
+    它虽然和 binascii.Error 同属 ValueError 家族，但反过来不成立——
+    只捕获 binascii.Error 会让这条英文消息漏到界面上。
+    """
+
+    def _message(self, text: str, method: str) -> str:
+        with self.assertRaises(ValueError) as ctx:
+            crypto.decode(text, method)
+        return str(ctx.exception)
+
+    def test_base64_non_ascii_input(self) -> None:
+        msg = self._message("这不是base64!!!", "base64")
+        self.assertIn("Base64", msg)
+        self.assertNotIn("only ASCII", msg)
+        self.assertNotIn("string argument", msg)
+
+    def test_base64_illegal_chars(self) -> None:
+        self.assertIn("非法字符", self._message("###", "base64"))
+
+    def test_base32_non_ascii_input(self) -> None:
+        msg = self._message("中文输入", "base32")
+        self.assertIn("Base32", msg)
+        self.assertNotIn("only ASCII", msg)
+
+    def test_base16_illegal_chars(self) -> None:
+        msg = self._message("zz!!", "base16")
+        self.assertIn("Base16", msg)
+        self.assertNotIn("only ASCII", msg)
+
+    def test_valid_input_still_decodes(self) -> None:
+        self.assertEqual(crypto.decode("aGVsbG8=", "base64"), "hello")
+        self.assertEqual(crypto.decode("NBSWY3DP", "base32"), "hello")
+        self.assertEqual(crypto.decode("68656C6C6F", "base16"), "hello")
+
+    def test_lowercase_base32_accepted(self) -> None:
+        self.assertEqual(crypto.decode("nbswy3dp", "base32"), "hello")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
