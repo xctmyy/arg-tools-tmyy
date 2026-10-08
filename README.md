@@ -1,4 +1,4 @@
-# arg.xc
+# arg-tools-tmyy
 
 ARG（Alternate Reality Game，另类实境游戏）创作工具箱。
 
@@ -28,7 +28,7 @@ python main.py
 ## 目录结构
 
 ```
-arg.xc/
+arg-tools-tmyy/
 ├── main.py                 入口：加入 import 路径并启动应用
 ├── requirements.txt
 ├── README.md
@@ -65,5 +65,5 @@ arg.xc/
 
 ## 许可证
 
-[MIT](LICENSE) © 2026 xctmyy
+[MIT](LICENSE) © 2026 _tmyy
 
